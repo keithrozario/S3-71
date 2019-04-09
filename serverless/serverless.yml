@@ -1,0 +1,56 @@
+service: cps3
+
+provider:
+  name: aws
+  runtime: python3.7
+  stage: prod
+  region: us-east-2
+  versionFunctions: false
+  logRetentionInDays: 1
+  iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+          - s3:GetObject
+        Resource: arn:aws:s3:::*/*
+
+custom:
+  sqs: bucketKeys
+
+functions:
+  copy_bucket:
+    reservedConcurrency: 30
+    handler: lambda_copy.main
+    memorySize: 128
+    timeout: 900
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - Messages
+              - Arn
+
+
+resources:
+  Resources:
+
+    Messages:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs}
+        MessageRetentionPeriod: 1209600
+        VisibilityTimeout: 5400
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - MessagesDeadLetterQueue
+              - Arn
+          maxReceiveCount: 5
+
+    MessagesDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs}-dl
+        MessageRetentionPeriod: 1209600
+
+
