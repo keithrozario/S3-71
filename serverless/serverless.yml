@@ -29,6 +29,7 @@ functions:
             Fn::GetAtt:
               - Messages
               - Arn
+          batchSize: 1
 
 
 resources:

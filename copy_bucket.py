@@ -63,7 +63,7 @@ if __name__ == '__main__':
     # Get all keys in Source Bucket
     logger.info(f"Getting all keys from bucket:{source_bucket}")
     keys = [obj.key for obj in bucket.objects.all()]
-    logger.info(f'Found {len(downloaded_keys)} keys')
+    logger.info(f'Found {len(keys)} keys')
 
     # Setup Que Batches
     per_lambda = 10
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     num_messages_failed = 0
 
     # Putting messages onto the Que
-    que_url = client.get_queue_url(QueueName=queue_name)['QueueUrl']
+    que_url = "https://sqs.us-east-2.amazonaws.com/820756113164/bucketKeys"
     que_dl_url = client.get_queue_url(QueueName=f"{queue_name}-dl")['QueueUrl']
     logger.info(f"Putting {len(message_batch)} messages onto Que: {que_url}")
     for k in range(0, len(message_batch), max_batch_size):
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     # Check Queue
     logger.info("Checking SQS Que....")
     while True:
-        time.sleep(2)
+        time.sleep(10)
         response = client.get_queue_attributes(QueueUrl=que_url,
                                                AttributeNames=['ApproximateNumberOfMessages',
                                                                'ApproximateNumberOfMessagesNotVisible'])
@@ -114,3 +114,18 @@ if __name__ == '__main__':
         logger.info("No Dead Letters found. All Que messages successfully processed")
     else:
         logger.info(f"{num_dead_letters} messages failed. Check dead letter que for more info")
+
+    calling_keys = []
+    for batch in message_batch:
+        body = json.loads(batch['MessageBody'])
+        calling_keys.extend(body['keys'])
+
+    logger.info(f"\n\nCalled: {len(calling_keys)}")
+
+    bucket = s3.Bucket(dest_bucket)
+    dest_keys = [obj.key for obj in bucket.objects.all()]
+    logger.info(f"Found {len(dest_keys)} in destination bucket")
+
+    missing_keys = [key for key in calling_keys if key not in dest_keys]
+    logger.info(f"{missing_keys}")
+    logger.info("end")
