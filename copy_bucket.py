@@ -61,16 +61,31 @@ if __name__ == '__main__':
     downloaded_keys = []
 
     # Get all keys in Source Bucket
-    logger.info(f"Getting all keys from bucket:{source_bucket}")
-    keys = [obj.key for obj in bucket.objects.all()]
-    logger.info(f'Found {len(keys)} keys')
+    logger.info(f"Getting all object from bucket:{source_bucket}")
 
-    # Setup Que Batches
+    # check size of all objects
+    lambda_size_in_bytes = config['functions']['copy_bucket']['memorySize'] * 1024 * 1024
+    max_size_in_bytes = lambda_size_in_bytes - 30 * 1024 * 1024
+
+    ok_keys, big_keys = [], []
+    for obj in bucket.objects.all():
+        if obj.size < max_size_in_bytes:
+            ok_keys.append(obj.key)
+        else:
+            big_keys.append(obj.key)
+    logger.info(f"Found {len(big_keys) + len(ok_keys)} objects in {source_bucket}")
+    if len(big_keys) == 0:
+        logger.info(f"All good: Copying all objects to {dest_bucket}")
+    else:
+        logger.info(f"Copying {len(ok_keys)} objects to {dest_bucket}")
+        logger.info(f"{len(big_keys)} objects are too large, unable to copy them")
+
+    # Batch up SQS Messages
     per_lambda = 10
     batches = [{"source_bucket": source_bucket,
                 "dest_bucket": dest_bucket,
-                "keys": keys[i: i + per_lambda]}
-               for i in range(0, len(keys), per_lambda)]
+                "keys": ok_keys[i: i + per_lambda]}
+               for i in range(0, len(ok_keys), per_lambda)]
 
     message_batch = [{'MessageBody': json.dumps(body), "Id": uuid.uuid4().__str__()}
                      for body in batches]
@@ -79,7 +94,7 @@ if __name__ == '__main__':
     num_messages_failed = 0
 
     # Putting messages onto the Que
-    que_url = "https://sqs.us-east-2.amazonaws.com/820756113164/bucketKeys"
+    que_url = client.get_queue_url(QueueName=f"{queue_name}")['QueueUrl']
     que_dl_url = client.get_queue_url(QueueName=f"{queue_name}-dl")['QueueUrl']
     logger.info(f"Putting {len(message_batch)} messages onto Que: {que_url}")
     for k in range(0, len(message_batch), max_batch_size):
@@ -126,6 +141,8 @@ if __name__ == '__main__':
     dest_keys = [obj.key for obj in bucket.objects.all()]
     logger.info(f"Found {len(dest_keys)} in destination bucket")
 
-    missing_keys = [key for key in calling_keys if key not in dest_keys]
-    logger.info(f"{missing_keys}")
-    logger.info("end")
+    missing_keys = [key for key in calling_keys if key not in ok_keys]
+    if len(missing_keys) > 0:
+        logger.info(f"Oh-oh! {len(missing_keys)} are missing please check DL que")
+    else:
+        logger.info("End")
