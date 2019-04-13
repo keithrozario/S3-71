@@ -2,7 +2,7 @@
 
 S3-71 is a lambda based solution for copying objects from one S3 Bucket to another. 
 
-The project utilizes SQS queues and Lambda functions to run hundreds of parallel copying jobs, achieving high speed and reliability.
+The project utilizes SQS queues and Lambda functions to run hundreds of parallel copying jobs, achieving high speeds and reliability.
 
 # Notes
 
@@ -10,15 +10,17 @@ S3-71 uses 2 lambda functions and 2 corresponding SQS queues to:
 * List the objects in the S3 Bucket
 * Copy the objects one-by-one from the source to destination buckets
 
-It gets its speed by doing both task simultaneously and in large parallel proceseses.
+It achieves its speed by doing both task simultaneously and in large parallel proceseses. Running ~500 copying processes at once.
 
 # Results
 
-S3-71 moved 1 million small (14 Byte) files from us-west-1 to us-east-2 in 12 minutes. This is an end-2-end timing, which included the listing of all objects in the bucket.
+S3-71 moved 1 million small (14 Byte) files from us-west-1 to us-east-2 in 12 minutes. 
+
+This is an end-2-end timing, which included the listing of all objects in the bucket and copying them across.
 
 # Installation
 
-Pre-requisites: Serverless Framework, Python 3.7 (may work with 3.6)
+Pre-requisites: [Serverless Framework](https://serverless.com/), Python 3.7 (may work with 3.6)
 
     $ ./intall.sh
     
@@ -28,9 +30,9 @@ Pre-requisites: Serverless Framework, Python 3.7 (may work with 3.6)
     
 # Caveats
 
-* Default lambda size is 128MB, and any object greater than 120MB might not be transferred, increase the memory of the lambda function to cater for files up to ~3GB
-* Currently will not copy across keys *beginning* with non-ascii utf-8 characters. It'll work if the non-ascii characters are part of the name
-* Any object whose key contains characters that are *not* from the list below will fail:
+* Default lambda size is 128MB, and any object greater than ~110MB will not be transferred, increase the memory of the lambda function to cater for files up to ~3GB
+* Currently will not copy across keys *beginning* with non-ascii utf-8 characters. Will work if the non-ascii character is part of the name.
+* Any object whose key contains characters that are *not* from the list below will fail (sqs limit):
     * \#x9, \#xA, #xD
     * \#x20 to #xD7FF
     * \#xE000 to #xFFFD
