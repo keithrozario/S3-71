@@ -1,44 +1,102 @@
 service: cps3
 
+custom:
+  sqs_copy_object: copy_object
+  sqs_list_bucket: list_bucket
+
 provider:
   name: aws
   runtime: python3.7
   stage: prod
   region: us-east-2
   versionFunctions: false
-  logRetentionInDays: 1
+  logRetentionInDays: 5
   iamRoleStatements:
       - Effect: Allow
         Action:
           - s3:PutObject
           - s3:GetObject
         Resource: arn:aws:s3:::*/*
-
-custom:
-  sqs: bucketKeys
+      - Effect: Allow
+        Action:
+          - s3:ListBucket
+        Resource: arn:aws:s3:::*
+      - Effect: Allow
+        Action:
+          - sqs:SendMessage
+          - sqs:GetQueueUrl
+        Resource:
+          Fn::GetAtt:
+            - copyObject
+            - Arn
+      - Effect: Allow
+        Action:
+          - sqs:SendMessage
+          - sqs:GetQueueUrl
+        Resource:
+          Fn::GetAtt:
+            - listBucket
+            - Arn
+  environment:
+    sqs_copy_object_url:
+      Ref: copyObject
+    sqs_list_bucket_url:
+      Ref: listBucket
 
 functions:
-  copy_bucket:
-    reservedConcurrency: 30
-    handler: lambda_copy.main
+  copy_objects:
+    description: Copy objects, one at a time, from one bucket to another
+    reservedConcurrency: 800
+    handler: copy_objects.main
     memorySize: 128
     timeout: 900
     events:
       - sqs:
           arn:
             Fn::GetAtt:
-              - Messages
+              - copyObject
               - Arn
           batchSize: 1
-
+  populate_s3:
+    description: testing function, that populates an S3 bucket with random files
+    handler: populate_s3.main
+    memorySize: 128
+    timeout: 900
+  list_objects:
+    description: 'List objects in the source bucket, that begin with specified prefix. Invokes copy_objects function via
+                  putting a message onto copy_objects sqs queue'
+    reservedConcurrency: 16
+    handler: list_objects.main
+    memorySize: 128
+    timeout: 900
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - listBucket
+              - Arn
+          batchSize: 1
 
 resources:
   Resources:
 
-    Messages:
+    copyObject:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:custom.sqs}
+        QueueName: ${self:custom.sqs_copy_object}
+        MessageRetentionPeriod: 1209600
+        VisibilityTimeout: 5400
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - MessagesDeadLetterQueue
+              - Arn
+          maxReceiveCount: 5
+
+    listBucket:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs_list_bucket}
         MessageRetentionPeriod: 1209600
         VisibilityTimeout: 5400
         RedrivePolicy:
@@ -51,7 +109,7 @@ resources:
     MessagesDeadLetterQueue:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:custom.sqs}-dl
+        QueueName: ${self:service}-dl
         MessageRetentionPeriod: 1209600
 
 

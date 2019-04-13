@@ -12,13 +12,9 @@ def main(event, context):
     # retrieve que message
     try:
         message = json.loads(event['Records'][0]['body'])
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, KeyError):
         logger.info("JSON Decoder error for event: {}".format(event))
-        return {'status': 500}  # return 'successfully' to SQS to prevent retry
-    except KeyError:
-        logger.info("Missing argument in que message")
-        logger.info("Message dump: {}".format(json.dumps(event)))
-        return {'status': 500}  # return 'successfully' to SQS to prevent retry
+        return {'status': 500}
 
     s3 = boto3.resource('s3')
     source_bucket = s3.Bucket(message['source_bucket'])
@@ -30,5 +26,6 @@ def main(event, context):
             byte_stream.seek(0)  # reset stream to beginning of file
             dest_bucket.upload_fileobj(byte_stream, key)
             logger.info(f"Uploaded {key} with size {byte_stream.__sizeof__()}")
+
     logger.info(f"Completed {len(message['keys'])} uploads")
     return {'Status': 200}

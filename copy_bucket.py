@@ -20,6 +20,76 @@ def get_config():
     return data
 
 
+def check_queue(queue_name):
+
+    que_url = client.get_queue_url(QueueName=f"{queue_name}")['QueueUrl']
+    response = client.get_queue_attributes(QueueUrl=que_url,
+                                           AttributeNames=['ApproximateNumberOfMessages',
+                                                           'ApproximateNumberOfMessagesNotVisible'])
+    num_messages_on_que = int(response['Attributes']['ApproximateNumberOfMessages'])
+    num_messages_hidden = int(response['Attributes']['ApproximateNumberOfMessagesNotVisible'])
+
+    logger.info(f"{num_messages_on_que} messages left on Que, {num_messages_hidden} messages not visible")
+
+    return num_messages_on_que, num_messages_hidden
+
+
+def check_dead_letter(queue_name):
+    """
+    Args:
+        queue : queue_name of the dead letter queue
+    """
+
+    que_dl_url = client.get_queue_url(QueueName=f"{queue_name}")['QueueUrl']
+    response = client.get_queue_attributes(QueueUrl=que_dl_url,
+                                           AttributeNames=['ApproximateNumberOfMessages',
+                                                           'ApproximateNumberOfMessagesNotVisible'])
+    num_dead_letters = int(response['Attributes']['ApproximateNumberOfMessages'])
+    if num_dead_letters == 0:
+        logger.info("No Dead Letters found. All Que messages successfully processed")
+    else:
+        logger.info(f"{num_dead_letters} messages failed. Check dead letter que for more info")
+
+    return num_dead_letters
+
+
+def put_sqs(message_batch, queue_name):
+    """
+    Args:
+        message_batch : list of messages to be sent to the que
+        queue_name : name of que to be put on
+
+    """
+    max_batch_size = 10
+    num_messages_success = 0
+    num_messages_failed = 0
+    que_url = client.get_queue_url(QueueName=f"{queue_name}")['QueueUrl']
+    logger.info(f"Putting {len(message_batch)} messages onto Que: {que_url}")
+    for k in range(0, len(message_batch), max_batch_size):
+        response = client.send_message_batch(QueueUrl=que_url,
+                                             Entries=message_batch[k:k + max_batch_size])
+        num_messages_success += len(response.get('Successful', []))
+        num_messages_failed += len(response.get('Failed', []))
+    logger.info(f"Total Messages: {len(message_batch)}")
+    logger.info(f"Successfully sent: {num_messages_success}")
+    logger.info(f"Failed to send: {num_messages_failed}")
+
+    logger.info("Checking SQS Que....")
+    while True:
+        time.sleep(10)
+        response = client.get_queue_attributes(QueueUrl=que_url,
+                                               AttributeNames=['ApproximateNumberOfMessages',
+                                                               'ApproximateNumberOfMessagesNotVisible'])
+        num_messages_on_que = int(response['Attributes']['ApproximateNumberOfMessages'])
+        num_messages_hidden = int(response['Attributes']['ApproximateNumberOfMessagesNotVisible'])
+
+        logger.info(f"{num_messages_on_que} messages left on Que, {num_messages_hidden} messages not visible")
+        if num_messages_on_que == 0 and num_messages_hidden == 0:
+            break
+
+    return num_messages_success
+
+
 if __name__ == '__main__':
 
     """
@@ -41,108 +111,51 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--source_bucket",
                         help="Source Bucket Name",
-                        default='ocr-domains-default')
+                        default='test-source-keithrozario')
     parser.add_argument("-d", "--dest_bucket",
                         help="Destination Bucket Name",
-                        default='ocr-domains-prod')
+                        default='test-dest-keithrozario')
     args = parser.parse_args()
-    source_bucket = args.source_bucket
-    dest_bucket = args.dest_bucket
 
     # Get Configuration
     config = get_config()
     region = config['provider']['region']
-    queue_name = config['custom']['sqs']
+    list_queue_name = config['custom']['sqs_list_bucket']
+    copy_queue_name = config['custom']['sqs_copy_object']
+    service_name = config['service']
 
     # Setup Clients & Resources
     client = boto3.client('sqs', region_name=region)
-    s3 = boto3.resource('s3')
-    bucket = s3.Bucket(source_bucket)
-    downloaded_keys = []
 
-    # Get all keys in Source Bucket
-    logger.info(f"Getting all object from bucket:{source_bucket}")
+    message = {"source_bucket": args.source_bucket,
+               "dest_bucket": args.dest_bucket,
+               "per_lambda": 50}
 
-    # check size of all objects
-    lambda_size_in_bytes = config['functions']['copy_bucket']['memorySize'] * 1024 * 1024
-    max_size_in_bytes = lambda_size_in_bytes - 30 * 1024 * 1024
-
-    ok_keys, big_keys = [], []
-    for obj in bucket.objects.all():
-        if obj.size < max_size_in_bytes:
-            ok_keys.append(obj.key)
-        else:
-            big_keys.append(obj.key)
-    logger.info(f"Found {len(big_keys) + len(ok_keys)} objects in {source_bucket}")
-    if len(big_keys) == 0:
-        logger.info(f"All good: Copying all objects to {dest_bucket}")
-    else:
-        logger.info(f"Copying {len(ok_keys)} objects to {dest_bucket}")
-        logger.info(f"{len(big_keys)} objects are too large, unable to copy them")
-
-    # Batch up SQS Messages
-    per_lambda = 10
-    batches = [{"source_bucket": source_bucket,
-                "dest_bucket": dest_bucket,
-                "keys": ok_keys[i: i + per_lambda]}
-               for i in range(0, len(ok_keys), per_lambda)]
-
-    message_batch = [{'MessageBody': json.dumps(body), "Id": uuid.uuid4().__str__()}
-                     for body in batches]
-    max_batch_size = 10
-    num_messages_success = 0
-    num_messages_failed = 0
+    prefixes = '0123456789abcdef'
+    message_batch = []
+    for prefix in prefixes:
+        message['prefix'] = prefix
+        message_batch.append({'MessageBody': json.dumps(message), "Id": uuid.uuid4().__str__()})
 
     # Putting messages onto the Que
-    que_url = client.get_queue_url(QueueName=f"{queue_name}")['QueueUrl']
-    que_dl_url = client.get_queue_url(QueueName=f"{queue_name}-dl")['QueueUrl']
-    logger.info(f"Putting {len(message_batch)} messages onto Que: {que_url}")
-    for k in range(0, len(message_batch), max_batch_size):
-        response = client.send_message_batch(QueueUrl=que_url,
-                                             Entries=message_batch[k:k + max_batch_size])
-        num_messages_success += len(response.get('Successful', []))
-        num_messages_failed += len(response.get('Failed', []))
-    logger.info(f"Total Messages: {len(message_batch)}")
-    logger.info(f"Successfully sent: {num_messages_success}")
-    logger.info(f"Failed to send: {num_messages_failed}")
+    put_sqs(message_batch, list_queue_name)
 
     # Check Queue
-    logger.info("Checking SQS Que....")
-    while True:
-        time.sleep(10)
-        response = client.get_queue_attributes(QueueUrl=que_url,
-                                               AttributeNames=['ApproximateNumberOfMessages',
-                                                               'ApproximateNumberOfMessagesNotVisible'])
-        num_messages_on_que = int(response['Attributes']['ApproximateNumberOfMessages'])
-        num_messages_hidden = int(response['Attributes']['ApproximateNumberOfMessagesNotVisible'])
-
-        logger.info(f"{num_messages_on_que} messages left on Que, {num_messages_hidden} messages not visible")
-        if num_messages_hidden == 0:
-            break
-
     logger.info("No messages left on SQS Que, checking DLQ:")
-    response = client.get_queue_attributes(QueueUrl=que_dl_url,
-                                           AttributeNames=['ApproximateNumberOfMessages',
-                                                           'ApproximateNumberOfMessagesNotVisible'])
-    num_dead_letters = int(response['Attributes']['ApproximateNumberOfMessages'])
-    if num_dead_letters == 0:
-        logger.info("No Dead Letters found. All Que messages successfully processed")
+    check_dead_letter(f"{service_name}-dl")
+
+    logger.info('Checking copy Queue')
+    while True:
+
+        num_messages_on_que, num_messages_hidden = check_queue(copy_queue_name)
+        logger.info(f'{num_messages_on_que} available on copy Queue')
+        logger.info(f'{num_messages_hidden} hidden on copy Queue')
+        if num_messages_on_que == 0 and num_messages_hidden == 0:
+            break
+        else:
+            time.sleep(30)
+
+    if check_dead_letter(f"{service_name}-dl") > 0:
+        logger.info(f"Errors found, please refer to {service_name}-dl for more info")
     else:
-        logger.info(f"{num_dead_letters} messages failed. Check dead letter que for more info")
-
-    calling_keys = []
-    for batch in message_batch:
-        body = json.loads(batch['MessageBody'])
-        calling_keys.extend(body['keys'])
-
-    logger.info(f"\n\nCalled: {len(calling_keys)}")
-
-    bucket = s3.Bucket(dest_bucket)
-    dest_keys = [obj.key for obj in bucket.objects.all()]
-    logger.info(f"Found {len(dest_keys)} in destination bucket")
-
-    missing_keys = [key for key in calling_keys if key not in ok_keys]
-    if len(missing_keys) > 0:
-        logger.info(f"Oh-oh! {len(missing_keys)} are missing please check DL que")
-    else:
-        logger.info("End")
+        logger.info("All Done")
