@@ -114,7 +114,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--source_bucket",
                         help="Source Bucket Name",
-                        default='∂')
+                        default='test-source-keithrozario')
     parser.add_argument("-d", "--dest_bucket",
                         help="Destination Bucket Name",
                         default='test-dest-keithrozario')
