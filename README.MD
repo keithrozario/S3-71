@@ -46,7 +46,9 @@ S3-71 is a homage to the SR-71, more commonly known as the Blackbird, the fastes
 
 # Results
 
-Total time to move 1 million 14-Byte files between 2 buckets in a single region is ~10 minutes. 
+Total time to move 1 million 14-Byte files between 2 buckets in a single region is ~10 minutes.
+
+Total time to move 1 million 14-Byte files between 2 buckets (us-west-1 to us-east-2) is ~25 minutes
 
 Your mileage will vary depending on latency between regions, size of your files, size of lambda function, etc etc.
 
