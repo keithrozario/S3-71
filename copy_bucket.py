@@ -6,6 +6,8 @@ import json
 import logging
 import argparse
 import time
+import string
+
 from yaml import load, Loader
 
 
@@ -99,30 +101,37 @@ if __name__ == '__main__':
     # Logging setup
     logging.basicConfig(filename='scan.log',
                         filemode='a',
-                        level=logging.INFO,
+                        level=logging.DEBUG,
                         format='%(asctime)s %(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
     logger = logging.getLogger(__name__)
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter('%(asctime)s %(message)s', "%H:%M:%S"))
     logger.addHandler(console)
 
     # Command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--source_bucket",
                         help="Source Bucket Name",
-                        default='test-source-keithrozario')
+                        default='∂')
     parser.add_argument("-d", "--dest_bucket",
                         help="Destination Bucket Name",
                         default='test-dest-keithrozario')
+    parser.add_argument("-p", "--per_lambda",
+                        help="number of files to transfer per lambda",
+                        default=50)
     args = parser.parse_args()
 
     # Get Configuration
     config = get_config()
     region = config['provider']['region']
-    list_queue_name = config['custom']['sqs_list_bucket']
-    copy_queue_name = config['custom']['sqs_copy_object']
     service_name = config['service']
+    list_queue_name = config['custom']['sqs_list_bucket'].replace('${self:service}', service_name)
+    copy_queue_name = config['custom']['sqs_copy_objects'].replace('${self:service}', service_name)
+    logger.info(f'Copying contents of {args.source_bucket} to {args.dest_bucket}')
+    logger.debug(f'Using Serverless deployment {service_name}')
+    logger.debug(f'Using SQS Queue: {list_queue_name}, {copy_queue_name}')
 
     # Setup Clients & Resources
     client = boto3.client('sqs', region_name=region)
@@ -131,7 +140,7 @@ if __name__ == '__main__':
                "dest_bucket": args.dest_bucket,
                "per_lambda": 50}
 
-    prefixes = '0123456789abcdef'
+    prefixes = 'abcdef0123456789'
     message_batch = []
     for prefix in prefixes:
         message['prefix'] = prefix
@@ -148,8 +157,6 @@ if __name__ == '__main__':
     while True:
 
         num_messages_on_que, num_messages_hidden = check_queue(copy_queue_name)
-        logger.info(f'{num_messages_on_que} available on copy Queue')
-        logger.info(f'{num_messages_hidden} hidden on copy Queue')
         if num_messages_on_que == 0 and num_messages_hidden == 0:
             break
         else:

@@ -1,8 +1,8 @@
-service: cps3
+service: s3-71
 
 custom:
-  sqs_copy_object: copy_object
-  sqs_list_bucket: list_bucket
+  sqs_copy_objects: ${self:service}-copy_objects
+  sqs_list_bucket: ${self:service}-list_bucket
 
 provider:
   name: aws
@@ -27,7 +27,7 @@ provider:
           - sqs:GetQueueUrl
         Resource:
           Fn::GetAtt:
-            - copyObject
+            - copyObjects
             - Arn
       - Effect: Allow
         Action:
@@ -38,15 +38,15 @@ provider:
             - listBucket
             - Arn
   environment:
-    sqs_copy_object_url:
-      Ref: copyObject
+    sqs_copy_objects_url:
+      Ref: copyObjects
     sqs_list_bucket_url:
       Ref: listBucket
 
 functions:
   copy_objects:
     description: Copy objects, one at a time, from one bucket to another
-    reservedConcurrency: 800
+    reservedConcurrency: 200
     handler: copy_objects.main
     memorySize: 128
     timeout: 900
@@ -54,18 +54,18 @@ functions:
       - sqs:
           arn:
             Fn::GetAtt:
-              - copyObject
+              - copyObjects
               - Arn
           batchSize: 1
   populate_s3:
-    description: testing function, that populates an S3 bucket with random files
+    description: testing function, populates an S3 bucket with random files
     handler: populate_s3.main
     memorySize: 128
     timeout: 900
-  list_objects:
+  list_bucket:
     description: 'List objects in the source bucket, that begin with specified prefix. Invokes copy_objects function via
                   putting a message onto copy_objects sqs queue'
-    reservedConcurrency: 16
+    reservedConcurrency: 100
     handler: list_objects.main
     memorySize: 128
     timeout: 900
@@ -80,10 +80,10 @@ functions:
 resources:
   Resources:
 
-    copyObject:
+    copyObjects:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:custom.sqs_copy_object}
+        QueueName: ${self:custom.sqs_copy_objects}
         MessageRetentionPeriod: 1209600
         VisibilityTimeout: 5400
         RedrivePolicy:

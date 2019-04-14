@@ -19,7 +19,7 @@ def put_sqs(batches: list) -> bool:
     items are put onto sqs que 10 at a time (maximum) -- each item in list is one item on que.
     """
 
-    que_url = os.environ['sqs_copy_object_url']
+    que_url = os.environ['sqs_copy_objects_url']
     logger.info(f"Que URL: {que_url}")
     # Batch up SQS Messages
     message_batch = [{'MessageBody': json.dumps(body), "Id": uuid.uuid4().__str__()}
@@ -132,3 +132,18 @@ def main(event, context):
             break
 
     return {'Status': 200}
+
+
+# if __name__ == '__main__':
+#
+#     message = {
+#         "source_bucket": "test-source-keithrozario",
+#         "dest_bucket": "test-dest-keithrozario",
+#         "prefix": "a",
+#         "per_lambda": 50
+#     }
+#
+#     event = {"Records": []}
+#     event['Records'].append({'body': json.dumps(message)})
+#
+#     main(event, {})
