@@ -3,6 +3,7 @@ service: s3-71
 custom:
   sqs_copy_objects: ${self:service}-copy_objects
   sqs_list_bucket: ${self:service}-list_bucket
+  sqs_delete_objects: ${self:service}-delete_objects
 
 provider:
   name: aws
@@ -16,6 +17,7 @@ provider:
         Action:
           - s3:PutObject
           - s3:GetObject
+          - s3:DeleteObject
         Resource: arn:aws:s3:::*/*
       - Effect: Allow
         Action:
@@ -42,11 +44,13 @@ provider:
       Ref: copyObjects
     sqs_list_bucket_url:
       Ref: listBucket
+    sqs_delete_objects:
+      Ref: deleteObjects
 
 functions:
   copy_objects:
     description: Copy objects, one at a time, from one bucket to another
-    reservedConcurrency: 200
+    reservedConcurrency: 150
     handler: copy_objects.main
     memorySize: 128
     timeout: 900
@@ -65,7 +69,6 @@ functions:
   list_bucket:
     description: 'List objects in the source bucket, that begin with specified prefix. Invokes copy_objects function via
                   putting a message onto copy_objects sqs queue'
-    reservedConcurrency: 100
     handler: list_objects.main
     memorySize: 128
     timeout: 900
@@ -76,6 +79,20 @@ functions:
               - listBucket
               - Arn
           batchSize: 1
+  delete_objects:
+    description: Delete all objects in a bucket, with a specified prefix
+    handler: delete_objects.main
+    reservedConcurrency: 5
+    memorySize: 128
+    timeout: 900
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - deleteObjects
+              - Arn
+          batchSize: 1
+
 
 resources:
   Resources:
@@ -97,6 +114,19 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:custom.sqs_list_bucket}
+        MessageRetentionPeriod: 1209600
+        VisibilityTimeout: 5400
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - MessagesDeadLetterQueue
+              - Arn
+          maxReceiveCount: 5
+
+    deleteObjects:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs_delete_objects}
         MessageRetentionPeriod: 1209600
         VisibilityTimeout: 5400
         RedrivePolicy:
