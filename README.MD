@@ -1,3 +1,7 @@
+Project was fun to make, but Amazon recently announced a much better way to accomplish this. Please use S3 batch jobs to copy items from bucket to another.
+
+[https://aws.amazon.com/blogs/aws/new-amazon-s3-batch-operations/](https://aws.amazon.com/blogs/aws/new-amazon-s3-batch-operations/)
+
 # S3-71
 
 S3-71 is a lambda based solution for copying objects from one S3 Bucket to another. 
