@@ -11,7 +11,7 @@ from copy_bucket import get_config, check_dead_letter, put_sqs
 if __name__ == '__main__':
 
     """
-    copies all files from source to destination bucket
+    deletes all files from source to destination bucket
     """
 
     # Logging setup
